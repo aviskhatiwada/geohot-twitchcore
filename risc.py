@@ -93,6 +93,12 @@ def r32(addr):
   #print(mem[addr:addr+4])
   return struct.unpack("<I", mem[addr:addr+4])[0]
 
+def b_arith(imm, cond):
+    print("branch taken to -> ", hex(regfile[PC] + imm ))
+    return regfile[PC] + imm if cond else 0
+
+        
+
 def step(): #parse inst, update regfiles
     global regfile
     pc=regfile[PC]
@@ -114,6 +120,8 @@ def step(): #parse inst, update regfiles
     imm_b=signext(get_bits(8,11)<<1  | (get_bits(25,30) << 5) | get_bits(7,8) << 11 | get_bits(31,32) << 12, 13)
     imm_j=signext(get_bits(21,30) << 1 | get_bits(20,21) << 11 | get_bits(12,19) << 12 | get_bits(30,31) << 20, 21)
     
+    print('branch immediate', imm_b)
+    
     #index return register
 
     rd=get_bits(7,11)
@@ -121,6 +129,8 @@ def step(): #parse inst, update regfiles
     funct7 = get_bits(25, 31)
     rs2=get_bits(20,24)
     rs1=get_bits(15,19)
+    print("src registers: ", rs1, rs2)
+    print(op, funct3, rs1, rs2)
 
 
     #these operations 'write back' values to the RD register
@@ -128,6 +138,8 @@ def step(): #parse inst, update regfiles
 
     # alt value of funct7, (ops.op) add-> sub, and logical shift -> arithmetic shift
     isalt = funct7 == 0x0100000 and op == Ops.OP or (op == Ops.IMM and funct3 == Funct3.SRAI)
+
+    branch_taken= op == Ops.BRANCH and cond(funct3, rs1, rs2)
     
     #map all types to ops ? Ops.OP: vs2 beacuse imm[11:5] is kept for func7, which determines alt instruct
     imm = {Ops.LUI: imm_u, Ops.STORE: imm_s, Ops.AUIPC: imm_u, Ops.OP: rs2, Ops.LOAD: imm_i, Ops.IMM:imm_i,
@@ -144,13 +156,18 @@ def step(): #parse inst, update regfiles
     #           branch_func = func3 if op == Ops.BRANCH
 
     # pc is changed if jmp or branch condition is met 
-    pcwrite= op in [Ops.JALR, Ops.JAL] or (op == Ops.BRANCH and cond(funct3, rs1, rs2))
-    pend=arith(a_funct3, a_src, imm, isalt) # output of computation 
+    pcwrite= op in [Ops.JALR, Ops.JAL] or branch_taken
+    if op==Ops.BRANCH:
+        pend=b_arith(imm, branch_taken)        
+    else:
+        pend=arith(a_funct3, a_src, imm, isalt) # output of computation 
+                                            # returns a no-take for branches
+
     # for a LB instruction: a_funct3: LB, a_src: rs1, imm: (I-type; [11:5] << 5 + [4:0]), isalt=False
     # print(op, funct3, a_src, imm, pend)
 
-    #if op== Ops.BRANCH:
-    #    return False
+
+
     if op == Ops.SYSTEM:
       # I-type instruction
       if funct3 == Funct3.ECALL:
@@ -184,13 +201,12 @@ def step(): #parse inst, update regfiles
             w_mem(pend, struct.pack("I", rs2&0xFFFFFFFF))
         if funct3==Funct3.SH:
             w_mem(pend, struct.pack("H", rs2&0xFFFF))
-
-
+    
     # for branch/jmp: 
     #   - jal : Op.JAL, imm_i, fucnt3 = (default) Funct3.ADD (000), rs1 (src) = pc (incremented by imm)
 
     if pcwrite:
-        print('pcwrote,', rd)
+        print('pcwrote,', rd, op, branch_taken)
         if regwriteback: # JAL/JALR
             print('write to reg')
             regfile[rd]=PC+4 # return next instruction to RD, sometimes discarded/unneeded by program (rd specified as x0)
@@ -201,6 +217,7 @@ def step(): #parse inst, update regfiles
             print('wrote', op)
             regfile[rd]=pend
         regfile[PC]=regfile[PC]+4
+        print('pc updated, ',hex(regfile[PC]))
 
 
     # display info about op
@@ -208,6 +225,7 @@ def step(): #parse inst, update regfiles
     requires writeback: %s addressed rdest: %s r_dest_value: %s | PC @ %s Performed Computation: %s PC is now %s" %\
     (op, a_funct3, hex(a_src), rs2, isalt, imm, regwriteback, rd, regfile[rd], PC, hex(pend),  hex(regfile[PC])))
         
+    
     return True
 
 if __name__=="__main__":

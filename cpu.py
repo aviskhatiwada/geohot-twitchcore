@@ -165,6 +165,8 @@ def cond(funct3, vs1, vs2):
     raise Exception("write %r funct3 %r" % (opcode, funct3))
   return ret
 
+def b_arith(imm, cond):
+    return regfile[PC] + imm 
 def step():
   # *** Instruction Fetch ***
   ins = r32(regfile[PC])
@@ -203,6 +205,8 @@ def step():
   arith_left = vpc if opcode in [Ops.JAL, Ops.BRANCH, Ops.AUIPC] else (0 if opcode == Ops.LUI else vs1)
   arith_func = funct3 if opcode in [Ops.OP, Ops.IMM] else Funct3.ADD
   pend_is_new_pc = opcode in [Ops.JAL, Ops.JALR] or (opcode == Ops.BRANCH and cond(funct3, vs1, vs2))
+
+  
   pend = arith(arith_func, arith_left, imm, alt)
 
   if opcode == Ops.SYSTEM:
@@ -215,6 +219,9 @@ def step():
         # hack for test exit
         return False
 
+  if opcode == Ops.BRANCH:
+    print("branch reached", opcode, funct3, vs1, vs2, "arith.output=",pend)
+    return False
   # *** Memory access ***
   if do_load:
     if funct3 == Funct3.LB:
@@ -236,11 +243,9 @@ def step():
       ws(pend, struct.pack("I", vs2))
   #print(opcode, funct3, imm, vpc, reg_writeback, "new addr: %s store in rd: %s value in rd: %s" % \
   #(hex(pend), hex(vpc+4), rd) )
-
   # *** Register write back ***
   if pend_is_new_pc:
     if reg_writeback:
-      print("********************* regwriteback when pc is to be written back")
       regfile[rd] = vpc + 4
     regfile[PC] = pend
   else:
